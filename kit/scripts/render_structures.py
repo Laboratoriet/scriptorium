@@ -105,7 +105,7 @@ GREEK = re.compile(r"<sub>([αβγδ])</sub>|([αβγδ])")
 def _ascii_label(label: str) -> tuple[str, str]:
     """'R<sub>α</sub>' → ('R', 'α'): RDKit can't draw non-ASCII text, so Greek suffixes are added afterwards.
     Primes are written as ASCII ' and '' (as printed in the book)."""
-    label = label.replace("′", "'").replace("″", "''")
+    label = label.replace("‴", "'''").replace("″", "''").replace("′", "'")
     greek = "".join(a or b for a, b in GREEK.findall(label))
     return GREEK.sub("", label), greek
 
@@ -139,6 +139,138 @@ def _apply_drawn_stereo(mol: Chem.Mol, drawing: dict) -> None:
                 break
 
 
+def _pin(mol: Chem.Mol, cmap: dict) -> None:
+    """2D coordinates with some atoms fixed. RDKit's depictor occasionally gives up on a pin set and silently lays the
+    molecule out freely; then release one pin at a time (last first) until the rest hold."""
+    from rdkit.Geometry import Point2D
+
+    def attempt(pins: dict) -> float:
+        rdDepictor.SetPreferCoordGen(False)  # coordMap is honoured by RDKit's own depictor
+        rdDepictor.Compute2DCoords(mol, coordMap=pins)
+        rdDepictor.SetPreferCoordGen(True)
+        conf = mol.GetConformer()
+        return max(abs(conf.GetAtomPosition(i).x - q.x) + abs(conf.GetAtomPosition(i).y - q.y) for i, q in pins.items())
+
+    if attempt(cmap) < 0.05:
+        return
+    # Release the pin whose atom then lands nearest to where it was meant to be.
+    best = None
+    for drop in cmap:
+        pins = {i: q for i, q in cmap.items() if i != drop}
+        if attempt(pins) < 0.05:
+            p = mol.GetConformer().GetAtomPosition(drop)
+            miss = math.hypot(p.x - cmap[drop].x, p.y - cmap[drop].y)
+            if best is None or miss < best[0]:
+                best = (miss, drop)
+    if best:
+        attempt({i: q for i, q in cmap.items() if i != best[1]})
+        print(f"  pins: released atom {best[1]} (RDKit could not honour all of them; lands {best[0] / 1.5:.2f} bonds off)",
+              file=sys.stderr)
+    else:
+        attempt(cmap)
+
+
+def _subtree(mol: Chem.Mol, start: int, blocked: int) -> set[int]:
+    """Atoms reachable from `start` without passing through `blocked` (the substituent hanging off a bond)."""
+    seen, todo = {start}, [start]
+    while todo:
+        for n in mol.GetAtomWithIdx(todo.pop()).GetNeighbors():
+            if n.GetIdx() != blocked and n.GetIdx() not in seen:
+                seen.add(n.GetIdx())
+                todo.append(n.GetIdx())
+    return seen
+
+
+def _shift_out(mol: Chem.Mol, frm: int, via: int, factor: float) -> None:
+    """Move a floating substituent further out along its bond, so the bond can reach into a box or arc as printed."""
+    conf = mol.GetConformer()
+    a, b = conf.GetAtomPosition(frm), conf.GetAtomPosition(via)
+    dx, dy = a.x - b.x, a.y - b.y
+    for i in _subtree(mol, frm, via):
+        p = conf.GetAtomPosition(i)
+        conf.SetAtomPosition(i, Point3D(p.x + dx * factor, p.y + dy * factor, 0))
+
+
+def _horizontal(mol: Chem.Mol, a: int, b: int) -> None:
+    """Rotate so a → b runs left to right, with the rest of the molecule hanging below that line (polymer backbones)."""
+    conf = mol.GetConformer()
+    pa, pb = conf.GetAtomPosition(a), conf.GetAtomPosition(b)
+    angle = -math.atan2(pb.y - pa.y, pb.x - pa.x)
+    cos, sin = math.cos(angle), math.sin(angle)
+    pts = []
+    for i in range(mol.GetNumAtoms()):
+        p = conf.GetAtomPosition(i)
+        x, y = p.x - pa.x, p.y - pa.y
+        pts.append((x * cos - y * sin, x * sin + y * cos))
+    others = [y for i, (_, y) in enumerate(pts) if i not in (a, b)]
+    flip = -1 if others and sum(others) / len(others) > 0 else 1  # RDKit's y points up; "below" is negative y
+    for i, (x, y) in enumerate(pts):
+        conf.SetAtomPosition(i, Point3D(x, y * flip, 0))
+
+
+def _float_line(start, end, labelled: bool, font: float, stroke: str) -> str:
+    """A bond drawn from a substituent to a free end point (into a box or arc); starts clear of the atom label."""
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    d = math.hypot(dx, dy) or 1
+    off = font * 0.62 if labelled else 0
+    x0, y0 = start[0] + dx / d * off, start[1] + dy / d * off
+    return (f"<path d='M {x0:.1f},{y0:.1f} L {end[0]:.1f},{end[1]:.1f}' "
+            f"style='fill:none;stroke:#000000;stroke-width:{stroke}px;stroke-linecap:butt' />")
+
+
+def _bracket(inside, outside, shape: str, half: float, stroke: str, upright: bool = False) -> tuple[str, tuple]:
+    """A repeat-unit bracket across the bond inside → outside: '( )' or '[ ]', bowing away from the unit.
+    upright: drawn vertical whatever the bond's angle (polymer brackets). Returns the path and its two end points."""
+    mx, my = (inside[0] + outside[0]) / 2, (inside[1] + outside[1]) / 2
+    dx, dy = outside[0] - inside[0], outside[1] - inside[1]
+    d = math.hypot(dx, dy) or 1
+    dx, dy = dx / d, dy / d
+    if upright:
+        dx, dy = (1.0 if dx >= 0 else -1.0), 0.0
+    nx, ny = -dy, dx
+    e1 = (mx + nx * half, my + ny * half)
+    e2 = (mx - nx * half, my - ny * half)
+    if shape == "square":
+        s = half * 0.32  # serifs point back into the unit
+        path = (f"M {e1[0] - dx * s:.1f},{e1[1] - dy * s:.1f} L {e1[0]:.1f},{e1[1]:.1f} "
+                f"L {e2[0]:.1f},{e2[1]:.1f} L {e2[0] - dx * s:.1f},{e2[1] - dy * s:.1f}")
+    else:
+        cx, cy = mx + dx * half * 0.7, my + dy * half * 0.7
+        e1 = (e1[0] - dx * half * 0.12, e1[1] - dy * half * 0.12)
+        e2 = (e2[0] - dx * half * 0.12, e2[1] - dy * half * 0.12)
+        path = f"M {e1[0]:.1f},{e1[1]:.1f} Q {cx:.1f},{cy:.1f} {e2[0]:.1f},{e2[1]:.1f}"
+    return (f"<path d='{path}' style='fill:none;stroke:#000000;stroke-width:{stroke}px;stroke-linecap:round;"
+            f"stroke-linejoin:round' />"), (e1, e2)
+
+
+def _labelled(node: dict):
+    """A node's molecule with its printed labels: R groups (Greek suffixes kept apart), locants; maps cleared.
+    Returns (mol, by_map, greek suffixes by atom, greek locants by atom)."""
+    mol = Chem.MolFromSmiles(node["smiles"])
+    by_map = {a.GetAtomMapNum(): a.GetIdx() for a in mol.GetAtoms() if a.GetAtomMapNum()}
+    greek, greek_notes = {}, {}
+    for m, label in (node.get("rgroups") or {}).items():
+        text, suffix = _ascii_label(str(label))
+        mol.GetAtomWithIdx(by_map[int(m)]).SetProp("_displayLabel", text)
+        if suffix:
+            greek[by_map[int(m)]] = suffix
+    for m, text in (node.get("locants") or {}).items():
+        if str(text).isascii():
+            mol.GetAtomWithIdx(by_map[int(m)]).SetProp("atomNote", str(text))
+        else:
+            greek_notes[by_map[int(m)]] = str(text)
+    for a in mol.GetAtoms():
+        if a.GetAtomicNum() == 0 and a.GetAtomMapNum():
+            a.SetIsotope(a.GetAtomMapNum())
+        if a.GetAtomMapNum() and a.GetAtomicNum() and not a.GetFormalCharge():
+            a.SetNoImplicit(False)
+            a.SetNumRadicalElectrons(0)
+        a.SetAtomMapNum(0)
+    mol.UpdatePropertyCache(strict=False)
+    Chem.SanitizeMol(mol)
+    return mol, by_map, greek, greek_notes
+
+
 def render_generic(node: dict, path: Path) -> None:
     """A generic (Markush) structure as printed: R groups on placeholder atoms, ring locants, and optionally the
     book's floating bond (a substituent that may sit at any of several ring positions).
@@ -148,6 +280,21 @@ def render_generic(node: dict, path: Path) -> None:
     drawn as its own atom, e.g. an N–H printed with H above], attach {from: map of the chain atom,
     to: [maps of the possible ring positions],
     via: map of the ring atom the chain is bonded to in `smiles` (where the printed bond crosses into the ring)}.
+
+    Marks for scaffolds a single structure can't show:
+    repeat [{atoms: [maps] or bonds: [[in, out], …], label: n, shape: round | square, label_at: bottom | top}]: a repeat unit — brackets
+      across the two bonds leaving it, "(CH2)n" on a chain or "[ ]n" on a polymer (end groups: R groups labelled *).
+    box {atoms: [maps], float: [{from, via}]}: a rounded box around part of a chain ("any position in here"); each
+      float substituent is bonded to `via` in `smiles` but drawn reaching into the box instead.
+    arc {atoms: [maps around the variable ring, fusion atom … fusion atom], float: [{from, via}]}: a ring of
+      unspecified size, drawn as an arc from fusion atom to fusion atom; a float substituent reaches into it.
+    horizontal [map, map]: rotate so this axis runs left to right with the rest hanging below.
+    coords {map: [x, y]}: pin atoms (bond lengths, y up) so the drawing keeps the printed orientation.
+    repeat entries also take size (bracket half-height in bonds, default 0.34) and upright: true (vertical brackets).
+    under {smiles, rgroups, coords, align {map in this node: map in under}}: a second structure drawn faint underneath,
+      superimposed on the aligned atoms (e.g. bioisostere overlays); ring {top: [attach, …ring maps in
+      order], under: [the six ring maps underneath, in order], toward: under map the second top atom sits next to}
+      lays a five-membered ring over the six-membered one.
     """
     from rdkit.Chem import rdchem
 
@@ -186,7 +333,67 @@ def render_generic(node: dict, path: Path) -> None:
         # "H above N, R to the right" as printed: the hydrogen becomes a drawn atom, so the layout places three
         # substituents around N instead of two (same molecule, just an explicit H)
         mol = Chem.AddHs(mol, onlyOnAtoms=show_h)
-    layout(mol)
+    under = node.get("under")
+    if under:
+        # The faint structure is laid out as usual; this one takes its aligned atoms' positions.
+        from rdkit.Geometry import Point2D
+        umol, u_by_map, u_greek, _ = _labelled(under)
+        if under.get("coords"):
+            _pin(umol, {u_by_map[int(m)]: Point2D(x * 1.5, y * 1.5) for m, (x, y) in under["coords"].items()})
+        else:
+            layout(umol)
+        uconf = umol.GetConformer()
+        upos = lambda m: uconf.GetAtomPosition(u_by_map[int(m)])
+        cmap = {by_map[int(a)]: Point2D(upos(b).x, upos(b).y) for a, b in under["align"].items()}
+        ring = under.get("ring")
+        if ring:
+            # A five-membered ring laid over the six-membered one underneath: it shares the attachment vertex and
+            # turns towards the hexagon's centre; its first atom after the attachment sits next to `toward`.
+            top = [by_map[int(m)] for m in ring["top"]]
+            hexagon = [upos(m) for m in ring["under"]]
+            px, py = cmap[top[0]].x, cmap[top[0]].y
+            hx, hy = sum(q.x for q in hexagon) / 6, sum(q.y for q in hexagon) / 6
+            b = math.hypot(hexagon[0].x - hexagon[1].x, hexagon[0].y - hexagon[1].y)
+            rc = b / (2 * math.sin(math.radians(36)))
+            ux, uy = hx - px, hy - py
+            un = math.hypot(ux, uy)
+            cx, cy = px + ux / un * rc, py + uy / un * rc
+            a0 = math.atan2(py - cy, px - cx)
+            tw = upos(ring["toward"])
+            step = min((1, -1), key=lambda s: math.hypot(cx + rc * math.cos(a0 + s * math.radians(72)) - tw.x,
+                                                         cy + rc * math.sin(a0 + s * math.radians(72)) - tw.y))
+            for k, i in enumerate(top[1:], 1):
+                a = a0 + step * math.radians(72) * k
+                cmap[i] = Point2D(cx + rc * math.cos(a), cy + rc * math.sin(a))
+        _pin(mol, cmap)
+    elif node.get("coords"):
+        # Pinned atoms, in bond lengths (x right, y up), so the drawing keeps the printed orientation.
+        from rdkit.Geometry import Point2D
+        _pin(mol, {by_map[int(m)]: Point2D(x * 1.5, y * 1.5) for m, (x, y) in node["coords"].items()})
+    else:
+        layout(mol)
+    if node.get("horizontal"):
+        _horizontal(mol, *(by_map[int(m)] for m in node["horizontal"]))
+
+    # Box and arc substituents: pushed out a little, then their bond is hidden and redrawn reaching in.
+    box, arc = node.get("box"), node.get("arc")
+    free = []  # (from atom, via atom, "box" | "arc")
+    for kind, mark in (("box", box), ("arc", arc)):
+        for f in (mark or {}).get("float") or []:
+            frm, via = by_map[int(f["from"])], by_map[int(f["via"])]
+            _shift_out(mol, frm, via, f.get("extend", 0.45))
+            free.append((frm, via, kind))
+    if free:
+        rw = Chem.RWMol(mol)
+        for frm, via, _ in free:
+            rw.RemoveBond(frm, via)
+            for i in (frm, via):
+                rw.GetAtomWithIdx(i).SetNumRadicalElectrons(0)
+                rw.GetAtomWithIdx(i).SetNoImplicit(True)
+        mol = rw.GetMol()
+        Chem.SanitizeMol(mol)
+        for a in mol.GetAtoms():
+            a.SetNumRadicalElectrons(0)
 
     # One floating bond, or several (a list): each substituent may sit anywhere on its ring.
     attach = node.get("attach")
@@ -208,6 +415,12 @@ def render_generic(node: dict, path: Path) -> None:
         for a in mol.GetAtoms():
             a.SetNumRadicalElectrons(0)
 
+    n_atoms, n_bonds = mol.GetNumAtoms(), mol.GetNumBonds()
+    if under:
+        mol = Chem.CombineMols(mol, umol)
+        for i, s in u_greek.items():
+            greek[i + n_atoms] = s
+
     drawer = rdMolDraw2D.MolDraw2DSVG(-1, -1)
     opts = drawer.drawOptions()
     opts.useBWAtomPalette()
@@ -217,6 +430,7 @@ def render_generic(node: dict, path: Path) -> None:
     opts.padding = 0.12
     opts.fontFile = ""
     opts.annotationFontScale = 0.6
+    opts.flagCloseContactsDist = -1  # overlays and pinned layouts put atoms close on purpose
     _label_deuterium(mol)
     rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol)
     drawer.FinishDrawing()
@@ -251,7 +465,99 @@ def render_generic(node: dict, path: Path) -> None:
         ex, ey = mx + (cx - mx) * 0.38, my + (cy - my) * 0.38
         extra.append(f"<path d='M {c.x:.1f},{c.y:.1f} L {ex:.1f},{ey:.1f}' "
                      f"style='fill:none;stroke:#000000;stroke-width:{stroke}px;stroke-linecap:butt' />")
+    bond_px = 30.0  # fixedBondLength
+    marks = []  # bounding boxes of the drawn marks (box, arc, brackets), to fit the canvas around them
+    labelled = lambda i: mol.GetAtomWithIdx(i).GetAtomicNum() not in (6,) or mol.GetAtomWithIdx(i).HasProp("_displayLabel")
+    xy = lambda i: (drawer.GetDrawCoords(i).x, drawer.GetDrawCoords(i).y)
+    if box:
+        pts = [xy(by_map[int(m)]) for m in box["atoms"]]
+        pad_x, pad_y = font * box.get("pad", 1.0), font * box.get("pad", 1.0) * 1.1
+        x0, y0 = min(p[0] for p in pts) - pad_x, min(p[1] for p in pts) - pad_y
+        x1, y1 = max(p[0] for p in pts) + pad_x, max(p[1] for p in pts) + pad_y
+        marks.append((x0, y0, x1, y1))
+        extra.append(f"<rect x='{x0:.1f}' y='{y0:.1f}' width='{x1 - x0:.1f}' height='{y1 - y0:.1f}' rx='{font * 0.55:.1f}' "
+                     f"style='fill:none;stroke:#000000;stroke-width:{stroke}px' />")
+        for frm, via, kind in free:
+            if kind != "box":
+                continue
+            (ax, ay), (bx, by) = xy(frm), xy(via)
+            dx, dy = bx - ax, by - ay
+            d = math.hypot(dx, dy) or 1
+            # where the bond meets the box, then half a bond inside it
+            ts = [t for t in ((x0 - ax) / dx if dx else None, (x1 - ax) / dx if dx else None,
+                              (y0 - ay) / dy if dy else None, (y1 - ay) / dy if dy else None) if t and t > 0]
+            t_in = min(t for t in ts if x0 - 0.5 <= ax + dx * t <= x1 + 0.5 and y0 - 0.5 <= ay + dy * t <= y1 + 0.5)
+            depth = bond_px * 0.5 / d
+            end_t = min(t_in + depth, 1.0)
+            extra.append(_float_line((ax, ay), (ax + dx * end_t, ay + dy * end_t), labelled(frm), font, stroke))
+    if arc:
+        ring = [by_map[int(m)] for m in arc["atoms"]]
+        pts = [xy(i) for i in ring]
+        cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+        r = sum(math.hypot(p[0] - cx, p[1] - cy) for p in pts) / len(pts)
+        # hide the variable ring's own bonds; the arc stands in for them
+        for a, b in zip(ring, ring[1:]):
+            bond = mol.GetBondBetweenAtoms(a, b)
+            if bond is not None:
+                svg = re.sub(rf"<path class='bond-{bond.GetIdx()} [^>]*/>\n?", "", svg)
+        ang = lambda p: math.atan2(p[1] - cy, p[0] - cx)
+        a0, a1, amid = ang(pts[0]), ang(pts[-1]), ang(pts[len(pts) // 2])
+        span = (a1 - a0) % (2 * math.pi)
+        if not (0 < (amid - a0) % (2 * math.pi) < span):  # go round the other way, through the ring's middle atom
+            span -= 2 * math.pi
+        steps = 40
+        d = " ".join(f"{'M' if k == 0 else 'L'} {cx + r * math.cos(a0 + span * k / steps):.1f},"
+                     f"{cy + r * math.sin(a0 + span * k / steps):.1f}" for k in range(steps + 1))
+        extra.append(f"<path d='{d}' style='fill:none;stroke:#000000;stroke-width:{stroke}px;stroke-linecap:butt' />")
+        marks.append((cx - r, cy - r, cx + r, cy + r))
+        for frm, via, kind in free:
+            if kind != "arc":
+                continue
+            ax, ay = xy(frm)
+            dx, dy = ax - cx, ay - cy
+            d0 = math.hypot(dx, dy) or 1
+            end = (cx + dx / d0 * r * 0.72, cy + dy / d0 * r * 0.72)
+            extra.append(_float_line((ax, ay), end, labelled(frm), font, stroke))
+    for unit in node.get("repeat") or []:
+        if unit.get("bonds"):  # [[inside, outside], …]: the bonds the brackets cross, when the unit has side chains
+            crossing = [(by_map[int(a)], by_map[int(b)]) for a, b in unit["bonds"]]
+            inside = {a for a, _ in crossing}
+        else:
+            inside = {by_map[int(m)] for m in unit["atoms"]}
+            crossing = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()
+                        if (b.GetBeginAtomIdx() in inside) != (b.GetEndAtomIdx() in inside)]
+        ends = []
+        for a, b in crossing:
+            i, o = (a, b) if a in inside else (b, a)
+            bracket, e = _bracket(xy(i), xy(o), unit.get("shape", "round"), bond_px * unit.get("size", 0.34), stroke,
+                                  unit.get("upright", False))
+            extra.append(bracket)
+            ends.append((xy(o)[0], e))
+            marks.append((min(e[0][0], e[1][0]), min(e[0][1], e[1][1]), max(e[0][0], e[1][0]) + font, max(e[0][1], e[1][1]) + font))
+        if unit.get("label") and ends:
+            _, (e1, e2) = max(ends)  # the bracket on the right carries the subscript
+            at = min((e1, e2), key=lambda e: e[1]) if unit.get("label_at") == "top" else max((e1, e2), key=lambda e: e[1])
+            extra.append(f"<text x='{at[0] + font * 0.3:.1f}' y='{at[1] + (font * 0.05 if unit.get('label_at') == 'top' else font * 0.6):.1f}' "
+                         f"font-size='{font * 0.72:.1f}' font-family='sans-serif' fill='#000000'>{unit['label']}</text>")
     svg = svg.replace("</svg>", "\n".join(extra) + "\n</svg>")
+    if under:
+        # The superimposed reference structure: same drawing, faint, so the overlaid analogue reads on top of it.
+        def fade(m: re.Match) -> str:
+            ids = m.group(1).split()
+            b = [int(c[5:]) for c in ids if c.startswith("bond-")]
+            a = [int(c[5:]) for c in ids if c.startswith("atom-")]
+            under_part = (b and b[0] >= n_bonds) or (not b and a and a[0] >= n_atoms)
+            return m.group(0) + (" opacity='0.3'" if under_part else "")
+        svg = re.sub(r"class='([^']*)'", fade, svg)
+        # RDKit's little corner patches at ring vertices carry no class: fade the ones on the faint structure's atoms
+        centres = [xy(i) for i in range(mol.GetNumAtoms())]
+
+        def fade_join(m: re.Match) -> str:
+            x, y = float(m.group(2)), float(m.group(3))
+            nearest = min(range(len(centres)), key=lambda i: (centres[i][0] - x) ** 2 + (centres[i][1] - y) ** 2)
+            return m.group(0).replace("<path ", "<path opacity='0.3' ", 1) if nearest >= n_atoms else m.group(0)
+        svg = re.sub(r"<path d='M [\d.]+,[\d.]+ L ([\d.]+),([\d.]+) L [\d.]+,[\d.]+'".replace("([\d.]+),([\d.]+)", "(([\d.]+),([\d.]+))"),
+                     fade_join, svg)
     if highlight:
         # The book's shaded circles (the part a text is about): soft discs under the atoms, drawn before the
         # bonds so the structure sits on top. Text colour at low opacity keeps them right in both themes.
@@ -268,6 +574,13 @@ def render_generic(node: dict, path: Path) -> None:
         x0 = min([0.0] + [b[0] - 2 for b in bounds]); y0 = min([0.0] + [b[1] - 2 for b in bounds])
         x1 = max([w] + [b[2] + 2 for b in bounds]); y1 = max([h] + [b[3] + 2 for b in bounds])
         svg = re.sub(r"width='[\d.]+px' height='[\d.]+px' viewBox='0 0 [\d.]+ [\d.]+'",
+                     f"width='{x1 - x0:.0f}px' height='{y1 - y0:.0f}px' viewBox='{x0:.1f} {y0:.1f} {x1 - x0:.1f} {y1 - y0:.1f}'", svg)
+    if marks:
+        # Boxes, arcs and brackets can reach past RDKit's canvas: grow it so nothing is clipped.
+        vx, vy, vw, vh = (float(v) for v in re.search(r"viewBox='([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)'", svg).groups())
+        x0 = min([vx] + [b[0] - 3 for b in marks]); y0 = min([vy] + [b[1] - 3 for b in marks])
+        x1 = max([vx + vw] + [b[2] + 3 for b in marks]); y1 = max([vy + vh] + [b[3] + 3 for b in marks])
+        svg = re.sub(r"width='[\d.]+px' height='[\d.]+px' viewBox='[-\d.]+ [-\d.]+ [\d.]+ [\d.]+'",
                      f"width='{x1 - x0:.0f}px' height='{y1 - y0:.0f}px' viewBox='{x0:.1f} {y0:.1f} {x1 - x0:.1f} {y1 - y0:.1f}'", svg)
     # Like render_mol: follow the page's ink colour (dark mode), and drop the XML header (it declares iso-8859-1,
     # but the Greek overlays are UTF-8).

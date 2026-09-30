@@ -222,7 +222,8 @@ def build_scheme(path: Path, chapter: str, known: set[str], ref_scope: int, cpd_
             node["of"] = n["of"]
         if n.get("smiles"):
             svg_name = f"scheme-{spec['id']}-{key}.svg"
-            if any(n.get(k) for k in ("rgroups", "locants", "attach", "highlight", "show_h", "dashed")):
+            if any(n.get(k) for k in ("rgroups", "locants", "attach", "highlight", "show_h", "dashed",
+                                      "repeat", "box", "arc", "under", "coords", "horizontal")):
                 render_generic(n, ROOT / "figures" / "structures" / svg_name)  # R groups, ring numbers, floating bond
             else:
                 render_mol(node_mol(n), ROOT / "figures" / "structures" / svg_name)
@@ -474,6 +475,7 @@ def main(slug: str) -> None:
                 (SITE / "public" / "illustrations").mkdir(parents=True, exist_ok=True)
                 shutil.copy(illustration, SITE / "public" / "illustrations" / illustration.name)
                 block["illustration"] = f"/illustrations/{illustration.name}"
+                block.pop("pending", None)  # drawn now: no "printed original" note under it
             elif restored.exists() and (block.get("partial") or not (block.get("compounds") or block.get("chart") or block.get("scheme") or block.get("document_en"))):
                 # Cleaned and upscaled from the printed page (scripts/restored_images.py); the scan stays one click away.
                 shutil.copy(restored, SITE / "public" / "figures" / f"{f['id']}-restored.webp")

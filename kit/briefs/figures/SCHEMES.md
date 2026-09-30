@@ -111,3 +111,24 @@ between the parent and the class). Node fields:
 - Arrows between two classes (not from/to the parent) can't be drawn in a class map: then use a normal scheme
   (arrow cells), and still put `chapter` on the nodes — it links there too.
 Worked examples: your book's first agreed specs of that type (the lead names them in the task once they exist).
+
+## Marks for scaffolds a single structure can't show
+Don't skip a figure just because it has one of these. Each is a node field (maps refer to atom-map numbers in `smiles`):
+
+- **Repeat units** — `(CH2)n` on a chain or a polymer `[ ]n`:
+  `repeat: [{atoms: [3], label: n}]` (round brackets across the bonds leaving the unit), or for a unit with side
+  chains `repeat: [{bonds: [[3, 1], [4, 2]], label: n, shape: square, upright: true, size: 0.75}]` (`[in, out]` per
+  bond). Polymer end marks are R groups labelled `*`. A bridge printed as text, like "(CH2)n" between two rings, is
+  simply an R group labelled `(CH<sub>2</sub>)<sub>n</sub>`.
+- **Variable box** — a rounded box around part of a chain ("any position in here"), with substituents whose bond
+  reaches into it: `box: {atoms: [3, 4], float: [{from: 6, via: 3}]}`. In `smiles`, the substituent is bonded to `via`.
+- **Ring of unspecified size** drawn as an arc: write a concrete ring in `smiles`, then
+  `arc: {atoms: [fusion atom, …ring atoms in order…, fusion atom], float: [{from: N, via: ring atom}]}`.
+- **Overlay** of two structures printed on top of each other: the analogue in `smiles`, the reference in
+  `under: {smiles, rgroups, coords, align: {map here: map under}, ring: {top: […], under: […], toward: map}}`
+  (a five-membered ring over a six-membered one). The reference is drawn faint.
+- **Printed orientation** — `coords: {map: [x, y]}` pins atoms (bond lengths, y up). Pin the atoms that set the
+  shape (backbone, the first atom of each side chain); if a render warns that a pin was released, pin one more
+  neighbouring atom rather than fewer.
+
+Check every one with `scriptorium run render_spec <spec> <scratch>` against the crop.
