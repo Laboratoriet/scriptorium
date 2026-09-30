@@ -108,6 +108,8 @@ export type SchemeCell =
   | null;
 
 export type SchemeData = {
+  scale?: number; // a figure drawn larger or smaller than book scale
+  tight?: boolean; // half the column gap (large maps)
   nodes: Record<string, SchemeNode>;
   grid: SchemeCell[][];
   /** A class map: parent structure with arrows to the classes, each linked to its chapter section. */

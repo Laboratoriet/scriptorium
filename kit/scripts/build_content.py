@@ -223,7 +223,9 @@ def build_scheme(path: Path, chapter: str, known: set[str], ref_scope: int, cpd_
         if n.get("smiles"):
             svg_name = f"scheme-{spec['id']}-{key}.svg"
             if any(n.get(k) for k in ("rgroups", "locants", "attach", "highlight", "show_h", "dashed",
-                                      "repeat", "box", "arc", "under", "coords", "horizontal")):
+                                      "repeat", "box", "arc", "under", "coords", "horizontal",
+                                      "circle", "axis", "inner_circle", "kekule", "lone_pairs", "clash",
+                                      "lobes", "wavy", "decor")):
                 render_generic(n, ROOT / "figures" / "structures" / svg_name)  # R groups, ring numbers, floating bond
             else:
                 render_mol(node_mol(n), ROOT / "figures" / "structures" / svg_name)
@@ -250,8 +252,10 @@ def build_scheme(path: Path, chapter: str, known: set[str], ref_scope: int, cpd_
         head = [[{**item, **{k: fmt(item.get(k)) for k in ("label_en", "label_de") if item.get(k)}} for item in row]
                 for row in spec.get("head") or []]
         toc = {"head": head, "groups": spec.get("groups") or []}
-    wide = any(n.get("callout_en") for n in nodes.values())  # callout layouts use the margin column too
-    return {"nodes": nodes, "grid": grid, "toc": toc, "classmap": spec.get("kind") == "classmap", "wide": wide, "pilot": not generic and not spec.get("read"),
+    # callout layouts, and schemes marked `wide: true` (too broad for the reading column), use the margin column too
+    wide = bool(spec.get("wide")) or any(n.get("callout_en") for n in nodes.values())
+    return {"nodes": nodes, "grid": grid, "toc": toc, "classmap": spec.get("kind") == "classmap", "wide": wide,
+            **({"scale": spec["scale"]} if spec.get("scale") else {}), **({"tight": True} if spec.get("tight") else {}), "pilot": not generic and not spec.get("read"),
             "checked": not generic and "two blind" in str(spec.get("read", "")), "generic": generic}
 
 

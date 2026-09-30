@@ -135,6 +135,11 @@ Don't skip a figure just because it has one of these. Each is a node field (maps
 - **Resonance forms**: `kekule: as_written` keeps the double bonds where the SMILES puts them; `inner_circle: [[ring
   maps]]` draws benzene with a circle.
 - **( )n at a bend**, brackets either side of the CH2 rather than across its bonds: `repeat: [{atoms: [m], around: true, label: n}]`.
+- **Conformation pictures**: `lone_pairs: {map: [degrees]}` (Lewis bars), `lobes: {map: [degrees]}` (orbital lobes),
+  `clash: [{at, toward}]` (steric repulsion half-circles), `wavy: [[a, b]]` (configuration left open).
+- **Binding models**: `decor: [{from: map, bar | line (dash) | arc (fill) | text …}]` places receptor bars, H-bond lines,
+  interaction regions and labels relative to an atom, in bond lengths.
+- **Scheme size**: `wide: true` (use the margin column), `scale: 1.5` (mostly-label figures) or `0.7` (big maps), `tight: true`.
 - **Printed orientation** — `coords: {map: [x, y]}` pins atoms (bond lengths, y up). Pin the atoms that set the
   shape (backbone, the first atom of each side chain); if a render warns that a pin was released, pin one more
   neighbouring atom rather than fewer.

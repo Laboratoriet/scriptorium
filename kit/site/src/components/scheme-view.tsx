@@ -123,7 +123,7 @@ function Node({ node, svg }: { node: SchemeNode; svg: string | null }) {
 export async function SchemeView({ scheme }: { scheme: SchemeData }) {
   const keys = Object.keys(scheme.nodes);
   const svgs = new Map(
-    await Promise.all(keys.map(async (k) => [k, scheme.nodes[k].svg ? await getSvg(scheme.nodes[k].svg!, scheme.generic ? undefined : SCHEME_SCALE) : null] as const)),
+    await Promise.all(keys.map(async (k) => [k, scheme.nodes[k].svg ? await getSvg(scheme.nodes[k].svg!, scheme.scale ?? (scheme.generic ? undefined : SCHEME_SCALE)) : null] as const)),
   );
   if (scheme.toc) return <TocView scheme={scheme} svgs={svgs} />;
 
@@ -261,7 +261,10 @@ function SchemeGrid({ scheme, svgs }: { scheme: SchemeData; svgs: Map<string, st
 
   return (
     <div className="overflow-x-auto" tabIndex={0} aria-label="Scheme (scrolls sideways on small screens)">
-      <div className="mx-auto grid w-max items-center gap-x-4 gap-y-6" style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}>
+      <div
+        className={`mx-auto grid w-max items-center gap-y-6 ${scheme.tight ? "gap-x-2" : "gap-x-4"}`}
+        style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}
+      >
         {scheme.grid.flatMap((row, r) => {
           let col = 1;
           return row.map((cell, i) => {

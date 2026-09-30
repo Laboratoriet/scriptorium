@@ -288,6 +288,12 @@ def render_generic(node: dict, path: Path) -> None:
       float substituent is bonded to `via` in `smiles` but drawn reaching into the box instead.
     arc {atoms: [maps around the variable ring, fusion atom … fusion atom], float: [{from, via}]}: a ring of
       unspecified size, drawn as an arc from fusion atom to fusion atom; a float substituent reaches into it.
+    lone_pairs {map: [degrees]}: lone pairs as bars beside the atom label (0 = right, 90 = up).
+    clash [{at, toward, size}]: steric repulsion — an open half-circle round `at`, facing `toward`.
+    lobes {map: [degrees]}: lone-pair orbital lobes out of the atom.
+    wavy [[map, map]]: a wavy bond (configuration left open), drawn from the first atom.
+    decor [{from: map, bar | line | arc | text …}]: receptor bars, H-bond lines, open arcs and labels placed relative
+      to an atom in bond lengths (x right, y up) — binding-model figures.
     horizontal [map, map]: rotate so this axis runs left to right with the rest hanging below.
     coords {map: [x, y]}: pin atoms (bond lengths, y up) so the drawing keeps the printed orientation.
     repeat entries also take size (bracket half-height in bonds, default 0.34) and upright: true (vertical brackets).
@@ -438,6 +444,15 @@ def render_generic(node: dict, path: Path) -> None:
                 rw.GetAtomWithIdx(i).SetNoImplicit(True)
         mol = rw.GetMol()
         mol.UpdatePropertyCache(strict=False)
+    for a_, b_ in node.get("wavy") or []:  # stereo left open: drawn as a wavy bond
+        bond = mol.GetBondBetweenAtoms(by_map[int(a_)], by_map[int(b_)])
+        if bond is not None:
+            if bond.GetBeginAtomIdx() != by_map[int(a_)]:
+                rw = Chem.RWMol(mol); rw.RemoveBond(by_map[int(b_)], by_map[int(a_)])
+                rw.AddBond(by_map[int(a_)], by_map[int(b_)], Chem.BondType.SINGLE); mol = rw.GetMol()
+                mol.UpdatePropertyCache(strict=False)
+                bond = mol.GetBondBetweenAtoms(by_map[int(a_)], by_map[int(b_)])
+            bond.SetBondDir(Chem.BondDir.UNKNOWN)
     n_atoms, n_bonds = mol.GetNumAtoms(), mol.GetNumBonds()
     if under:
         mol = Chem.CombineMols(mol, umol)
@@ -582,6 +597,72 @@ def render_generic(node: dict, path: Path) -> None:
         cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
         r = sum(math.hypot(p[0] - cx, p[1] - cy) for p in pts) / len(pts) * 0.6
         extra.append(f"<circle cx='{cx:.1f}' cy='{cy:.1f}' r='{r:.1f}' style='fill:none;stroke:#000000;stroke-width:{stroke}px' />")
+    # Lone pairs drawn as bars beside an atom label (Lewis style): {map: [angles in degrees, 0 = right, 90 = up]}
+    for m, angles in (node.get("lone_pairs") or {}).items():
+        ax, ay = xy(by_map[int(m)])
+        for deg in angles:
+            ux, uy = math.cos(math.radians(deg)), -math.sin(math.radians(deg))
+            cx, cy = ax + ux * font * 0.8, ay + uy * font * 0.8
+            h = font * 0.3
+            extra.append(f"<path d='M {cx - uy * h:.1f},{cy + ux * h:.1f} L {cx + uy * h:.1f},{cy - ux * h:.1f}' "
+                         f"style='fill:none;stroke:#000000;stroke-width:{float(stroke) * 0.9:.2f}px;stroke-linecap:round' />")
+    # Lone-pair lobes (orbital drawings): {map: [degrees]} — a teardrop out of the atom label per lone pair
+    for m, angles in (node.get("lobes") or {}).items():
+        ax, ay = xy(by_map[int(m)])
+        for deg in angles:
+            dx, dy = math.cos(math.radians(deg)), -math.sin(math.radians(deg))
+            nx, ny = -dy, dx
+            L, W = bond_px * 0.62, bond_px * 0.24
+            bx_, by_ = ax + dx * font * 0.55, ay + dy * font * 0.55
+            P = lambda a, b: f"{bx_ + dx * a + nx * b:.1f},{by_ + dy * a + ny * b:.1f}"
+            extra.append(f"<path d='M {bx_:.1f},{by_:.1f} C {P(L * 0.3, W)} {P(L, W * 0.95)} {P(L * 1.02, 0)} "
+                         f"C {P(L, -W * 0.95)} {P(L * 0.3, -W)} {bx_:.1f},{by_:.1f} Z' "
+                         f"style='fill:none;stroke:#000000;stroke-width:{float(stroke) * 0.9:.2f}px;stroke-linejoin:round' />")
+            marks.append((min(bx_, bx_ + dx * L) - W, min(by_, by_ + dy * L) - W, max(bx_, bx_ + dx * L) + W, max(by_, by_ + dy * L) + W))
+    # Decoration placed relative to an atom, in bond lengths (x right, y up): receptor bars, H-bond lines, labels, arcs
+    for d in node.get("decor") or []:
+        ax, ay = xy(by_map[int(d["from"])])
+        P = lambda q: (ax + q[0] * bond_px, ay - q[1] * bond_px)
+        if "bar" in d:
+            (cx, cy), (w, h) = P(d["bar"]), (d.get("size", [2.2, 0.35])[0] * bond_px, d.get("size", [2.2, 0.35])[1] * bond_px)
+            extra.append(f"<rect x='{cx - w / 2:.1f}' y='{cy - h / 2:.1f}' width='{w:.1f}' height='{h:.1f}' rx='{min(w, h) * 0.3:.1f}' "
+                         f"style='fill:#000000;fill-opacity:0.28;stroke:#000000;stroke-width:{stroke}px' />")
+            marks.append((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2))
+        elif "line" in d:
+            pts = [P(q) for q in d["line"]]
+            dash = "stroke-dasharray:4,3;" if d.get("dash") else ""
+            extra.append("<path d='M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts) +
+                         f"' style='fill:none;stroke:#000000;stroke-width:{stroke}px;{dash}stroke-linecap:round' />")
+            marks.append((min(x for x, _ in pts), min(y for _, y in pts), max(x for x, _ in pts), max(y for _, y in pts)))
+        elif "arc" in d:
+            (cx, cy), r = P(d["arc"]), d.get("r", 1.0) * bond_px
+            a0, a1 = math.radians(d.get("from_deg", 90)), math.radians(d.get("to_deg", 270))
+            pts = [(cx + r * math.cos(a0 + (a1 - a0) * k / 40), cy - r * math.sin(a0 + (a1 - a0) * k / 40)) for k in range(41)]
+            if d.get("fill"):  # a shaded region behind the arc, as some binding models print it
+                extra.insert(0, f"<circle cx='{cx:.1f}' cy='{cy:.1f}' r='{r:.1f}' fill='#000000' fill-opacity='0.1' />")
+            extra.append("<path d='M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts) +
+                         f"' style='fill:none;stroke:#000000;stroke-width:{stroke}px;stroke-linecap:round' />")
+            marks.append((cx - r, cy - r, cx + r, cy + r))
+        elif "text" in d:
+            (tx, ty), size = P(d["at"]), font * d.get("size", 1.0)
+            anchor = d.get("anchor", "middle")
+            lines_ = str(d["text"]).split("\n")
+            for k, line in enumerate(lines_):
+                y_ = ty + (k - (len(lines_) - 1) / 2) * size * 1.2 + size * 0.35
+                extra.append(f"<text x='{tx:.1f}' y='{y_:.1f}' font-size='{size:.1f}' text-anchor='{anchor}' "
+                             f"font-family='sans-serif' fill='#000000'>{line}</text>")
+            w = max(len(l) for l in lines_) * size * 0.55
+            x0_ = tx - w if anchor == "end" else tx - w / 2 if anchor == "middle" else tx
+            marks.append((x0_, ty - len(lines_) * size * 0.7, x0_ + w, ty + len(lines_) * size * 0.7))
+    # Steric repulsion: an open half-circle round an atom, on the side facing the group it collides with
+    for c in node.get("clash") or []:
+        (ax, ay), (bx, by) = xy(by_map[int(c["at"])]), xy(by_map[int(c["toward"])])
+        a0 = math.atan2(by - ay, bx - ax)
+        r = bond_px * c.get("size", 0.5)
+        pts = [(ax + r * math.cos(a0 + math.radians(s)), ay + r * math.sin(a0 + math.radians(s))) for s in range(-75, 76, 5)]
+        extra.append("<path d='M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts) +
+                     f"' style='fill:none;stroke:#000000;stroke-width:{stroke}px;stroke-linecap:round' />")
+        marks.append((ax - r, ay - r, ax + r, ay + r))
     # A dashed axis through two atoms, running on past both (a symmetry line)
     axis = node.get("axis")
     if axis:
