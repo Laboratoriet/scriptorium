@@ -298,7 +298,8 @@ def render_generic(node: dict, path: Path) -> None:
     """
     from rdkit.Chem import rdchem
 
-    mol = Chem.MolFromSmiles(node["smiles"])
+    kekule = node.get("kekule") == "as_written"  # draw the double bonds where the SMILES puts them (resonance forms)
+    mol = Chem.MolFromSmiles(node["smiles"], sanitize=not kekule)
     by_map = {a.GetAtomMapNum(): a.GetIdx() for a in mol.GetAtoms() if a.GetAtomMapNum()}
     greek = {}
     # each entry is one shaded disc: a map number (one atom) or a list of map numbers (one disc around them)
@@ -325,7 +326,7 @@ def render_generic(node: dict, path: Path) -> None:
             a.SetNumRadicalElectrons(0)
         a.SetAtomMapNum(0)
     mol.UpdatePropertyCache(strict=False)
-    Chem.SanitizeMol(mol)
+    Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_SETAROMATICITY) if kekule else Chem.SanitizeMol(mol)
     if node.get("stereo_drawing"):
         _apply_drawn_stereo(mol, node["stereo_drawing"])
     show_h = [by_map[int(m)] for m in node.get("show_h") or []]
@@ -376,13 +377,20 @@ def render_generic(node: dict, path: Path) -> None:
         _horizontal(mol, *(by_map[int(m)] for m in node["horizontal"]))
 
     # Box and arc substituents: pushed out a little, then their bond is hidden and redrawn reaching in.
-    box, arc = node.get("box"), node.get("arc")
-    free = []  # (from atom, via atom, "box" | "arc")
-    for kind, mark in (("box", box), ("arc", arc)):
-        for f in (mark or {}).get("float") or []:
+    box = node.get("box")
+    as_list_ = lambda v: v if isinstance(v, list) else [v] if v else []
+    rings_drawn = [("arc", k, a) for k, a in enumerate(as_list_(node.get("arc")))] + \
+                  [("circle", k, c) for k, c in enumerate(as_list_(node.get("circle")))]
+    free = []  # (from atom, via atom, "box" | ("arc"|"circle", index))
+    for f in (box or {}).get("float") or []:
+        frm, via = by_map[int(f["from"])], by_map[int(f["via"])]
+        _shift_out(mol, frm, via, f.get("extend", 0.45))
+        free.append((frm, via, "box"))
+    for kind, k, mark in rings_drawn:
+        for f in mark.get("float") or []:
             frm, via = by_map[int(f["from"])], by_map[int(f["via"])]
             _shift_out(mol, frm, via, f.get("extend", 0.45))
-            free.append((frm, via, kind))
+            free.append((frm, via, (kind, k)))
     if free:
         rw = Chem.RWMol(mol)
         for frm, via, _ in free:
@@ -415,6 +423,21 @@ def render_generic(node: dict, path: Path) -> None:
         for a in mol.GetAtoms():
             a.SetNumRadicalElectrons(0)
 
+    if node.get("inner_circle"):
+        # Benzene drawn with a circle: its ring bonds are drawn plain, the circle is added after drawing
+        rw = Chem.RWMol(mol)
+        for ring_maps in node["inner_circle"]:
+            ring = [by_map[int(m)] for m in ring_maps]
+            for a, b in zip(ring, ring[1:] + ring[:1]):
+                bond = rw.GetBondBetweenAtoms(a, b)
+                if bond is not None:
+                    bond.SetBondType(Chem.BondType.SINGLE)
+                    bond.SetIsAromatic(False)
+            for i in ring:
+                rw.GetAtomWithIdx(i).SetIsAromatic(False)
+                rw.GetAtomWithIdx(i).SetNoImplicit(True)
+        mol = rw.GetMol()
+        mol.UpdatePropertyCache(strict=False)
     n_atoms, n_bonds = mol.GetNumAtoms(), mol.GetNumBonds()
     if under:
         mol = Chem.CombineMols(mol, umol)
@@ -463,19 +486,26 @@ def render_generic(node: dict, path: Path) -> None:
         other = min(nbrs, key=lambda n: (pts[n].x - c.x) ** 2 + (pts[n].y - c.y) ** 2) if nbrs else via
         mx, my = (pts[via].x + pts[other].x) / 2, (pts[via].y + pts[other].y) / 2
         ex, ey = mx + (cx - mx) * 0.38, my + (cy - my) * 0.38
-        extra.append(f"<path d='M {c.x:.1f},{c.y:.1f} L {ex:.1f},{ey:.1f}' "
-                     f"style='fill:none;stroke:#000000;stroke-width:{stroke}px;stroke-linecap:butt' />")
+        # from the edge of a label ("MeO", "X"), not through it
+        extra.append(_float_line((c.x, c.y), (ex, ey), mol.GetAtomWithIdx(chain).HasProp("_displayLabel")
+                                 or mol.GetAtomWithIdx(chain).GetAtomicNum() != 6, font * (1.2 if len(
+                                     mol.GetAtomWithIdx(chain).GetPropsAsDict().get("_displayLabel", "")) > 2 else 1), stroke))
     bond_px = 30.0  # fixedBondLength
     marks = []  # bounding boxes of the drawn marks (box, arc, brackets), to fit the canvas around them
     labelled = lambda i: mol.GetAtomWithIdx(i).GetAtomicNum() not in (6,) or mol.GetAtomWithIdx(i).HasProp("_displayLabel")
     xy = lambda i: (drawer.GetDrawCoords(i).x, drawer.GetDrawCoords(i).y)
     if box:
         pts = [xy(by_map[int(m)]) for m in box["atoms"]]
-        pad_x, pad_y = font * box.get("pad", 1.0), font * box.get("pad", 1.0) * 1.1
-        x0, y0 = min(p[0] for p in pts) - pad_x, min(p[1] for p in pts) - pad_y
-        x1, y1 = max(p[0] for p in pts) + pad_x, max(p[1] for p in pts) + pad_y
+        if box.get("size"):  # a fixed box (in bond lengths) centred on its atoms: "any ring" as a rounded square
+            w, h = (s * bond_px for s in box["size"])
+            mx, my = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+            x0, y0, x1, y1 = mx - w / 2, my - h / 2, mx + w / 2, my + h / 2
+        else:
+            pad_x, pad_y = font * box.get("pad", 1.0), font * box.get("pad", 1.0) * 1.1
+            x0, y0 = min(p[0] for p in pts) - pad_x, min(p[1] for p in pts) - pad_y
+            x1, y1 = max(p[0] for p in pts) + pad_x, max(p[1] for p in pts) + pad_y
         marks.append((x0, y0, x1, y1))
-        extra.append(f"<rect x='{x0:.1f}' y='{y0:.1f}' width='{x1 - x0:.1f}' height='{y1 - y0:.1f}' rx='{font * 0.55:.1f}' "
+        extra.append(f"<rect x='{x0:.1f}' y='{y0:.1f}' width='{x1 - x0:.1f}' height='{y1 - y0:.1f}' rx='{font * box.get('radius', 0.55):.1f}' "
                      f"style='fill:none;stroke:#000000;stroke-width:{stroke}px' />")
         for frm, via, kind in free:
             if kind != "box":
@@ -490,34 +520,80 @@ def render_generic(node: dict, path: Path) -> None:
             depth = bond_px * 0.5 / d
             end_t = min(t_in + depth, 1.0)
             extra.append(_float_line((ax, ay), (ax + dx * end_t, ay + dy * end_t), labelled(frm), font, stroke))
-    if arc:
-        ring = [by_map[int(m)] for m in arc["atoms"]]
+    # Label positions on the drawing: arcs and circles leave a gap where they pass through one (the N of a ring).
+    label_pts = [xy(i) for i in range(n_atoms) if labelled(i)]
+
+    def curve(cx, cy, r, a0, span, steps=60):
+        segs, cur = [], []
+        for k in range(steps + 1):
+            a = a0 + span * k / steps
+            x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+            if any(math.hypot(x - lx, y - ly) < font * 0.62 for lx, ly in label_pts):
+                if len(cur) > 1:
+                    segs.append(cur)
+                cur = []
+            else:
+                cur.append((x, y))
+        if len(cur) > 1:
+            segs.append(cur)
+        return " ".join("M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in s) for s in segs)
+
+    for kind, k, mark in rings_drawn:
+        ring = [by_map[int(m)] for m in mark["atoms"]]
         pts = [xy(i) for i in ring]
-        cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+        ctr = [xy(by_map[int(m)]) for m in mark.get("center") or mark["atoms"]]
+        cx, cy = sum(p[0] for p in ctr) / len(ctr), sum(p[1] for p in ctr) / len(ctr)
         r = sum(math.hypot(p[0] - cx, p[1] - cy) for p in pts) / len(pts)
-        # hide the variable ring's own bonds; the arc stands in for them
-        for a, b in zip(ring, ring[1:]):
+        # hide the ring's own bonds (and, for a circle, its closing bond); the curve stands in for them
+        pairs = list(zip(ring, ring[1:])) + ([(ring[-1], ring[0])] if kind == "circle" else [])
+        for a, b in pairs:
             bond = mol.GetBondBetweenAtoms(a, b)
             if bond is not None:
                 svg = re.sub(rf"<path class='bond-{bond.GetIdx()} [^>]*/>\n?", "", svg)
-        ang = lambda p: math.atan2(p[1] - cy, p[0] - cx)
-        a0, a1, amid = ang(pts[0]), ang(pts[-1]), ang(pts[len(pts) // 2])
-        span = (a1 - a0) % (2 * math.pi)
-        if not (0 < (amid - a0) % (2 * math.pi) < span):  # go round the other way, through the ring's middle atom
-            span -= 2 * math.pi
-        steps = 40
-        d = " ".join(f"{'M' if k == 0 else 'L'} {cx + r * math.cos(a0 + span * k / steps):.1f},"
-                     f"{cy + r * math.sin(a0 + span * k / steps):.1f}" for k in range(steps + 1))
+        # and RDKit's unclassed corner patches at the hidden atoms (they'd show as ticks on the curve)
+        hidden = [xy(i) for i in ring if not labelled(i)]
+
+        def drop_join(m: re.Match) -> str:
+            x, y = float(m.group(1)), float(m.group(2))
+            return "" if any(math.hypot(x - hx, y - hy) < 3 for hx, hy in hidden) else m.group(0)
+        svg = re.sub(r"<path d='M [\d.]+,[\d.]+ L ([\d.]+),([\d.]+) L [\d.]+,[\d.]+' [^>]*/>\n?", drop_join, svg)
+        if kind == "circle":
+            d = curve(cx, cy, r, 0.0, 2 * math.pi, 96)
+        else:
+            ang = lambda p: math.atan2(p[1] - cy, p[0] - cx)
+            a0, a1, amid = ang(pts[0]), ang(pts[-1]), ang(pts[len(pts) // 2])
+            span = (a1 - a0) % (2 * math.pi)
+            if not (0 < (amid - a0) % (2 * math.pi) < span):  # go round the other way, through the ring's middle atom
+                span -= 2 * math.pi
+            d = curve(cx, cy, r, a0, span)
         extra.append(f"<path d='{d}' style='fill:none;stroke:#000000;stroke-width:{stroke}px;stroke-linecap:butt' />")
         marks.append((cx - r, cy - r, cx + r, cy + r))
-        for frm, via, kind in free:
-            if kind != "arc":
+        for frm, via, tag in free:
+            if tag != (kind, k):
                 continue
             ax, ay = xy(frm)
             dx, dy = ax - cx, ay - cy
             d0 = math.hypot(dx, dy) or 1
-            end = (cx + dx / d0 * r * 0.72, cy + dy / d0 * r * 0.72)
-            extra.append(_float_line((ax, ay), end, labelled(frm), font, stroke))
+            end_ = (cx + dx / d0 * r * mark.get("depth", 0.72), cy + dy / d0 * r * mark.get("depth", 0.72))
+            extra.append(_float_line((ax, ay), end_, labelled(frm), font, stroke))
+    # An aromatic ring drawn with a circle inside (the book's benzene notation)
+    for ring_maps in node.get("inner_circle") or []:
+        pts = [xy(by_map[int(m)]) for m in ring_maps]
+        cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+        r = sum(math.hypot(p[0] - cx, p[1] - cy) for p in pts) / len(pts) * 0.6
+        extra.append(f"<circle cx='{cx:.1f}' cy='{cy:.1f}' r='{r:.1f}' style='fill:none;stroke:#000000;stroke-width:{stroke}px' />")
+    # A dashed axis through two atoms, running on past both (a symmetry line)
+    axis = node.get("axis")
+    if axis:
+        (ax, ay), (bx, by) = (xy(by_map[int(m)]) for m in axis["through"])
+        ext = axis.get("extend", 1.0) * bond_px
+        dx, dy = bx - ax, by - ay
+        d0 = math.hypot(dx, dy) or 1
+        p0 = (ax - dx / d0 * ext, ay - dy / d0 * ext)
+        p1 = (bx + dx / d0 * ext, by + dy / d0 * ext)
+        extra.append(f"<path d='M {p0[0]:.1f},{p0[1]:.1f} L {p1[0]:.1f},{p1[1]:.1f}' "
+                     f"style='fill:none;stroke:#000000;stroke-width:{float(stroke) * 0.8:.2f}px;stroke-dasharray:4,3' />")
+        marks.append((min(p0[0], p1[0]), min(p0[1], p1[1]), max(p0[0], p1[0]), max(p0[1], p1[1])))
     for unit in node.get("repeat") or []:
         if unit.get("bonds"):  # [[inside, outside], …]: the bonds the brackets cross, when the unit has side chains
             crossing = [(by_map[int(a)], by_map[int(b)]) for a, b in unit["bonds"]]
@@ -527,6 +603,18 @@ def render_generic(node: dict, path: Path) -> None:
             crossing = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()
                         if (b.GetBeginAtomIdx() in inside) != (b.GetEndAtomIdx() in inside)]
         ends = []
+        if unit.get("around"):
+            # "( )n" drawn either side of the repeating atom itself, upright, as the book prints a CH2 unit at a bend
+            cx_ = sum(xy(i)[0] for i in inside) / len(inside)
+            cy_ = sum(xy(i)[1] for i in inside) / len(inside)
+            w_ = bond_px * unit.get("width", 0.42)
+            crossing = []
+            for sgn in (-1, 1):
+                bracket, e = _bracket((cx_, cy_), (cx_ + sgn * 2 * w_, cy_), unit.get("shape", "round"),
+                                      bond_px * unit.get("size", 0.34), stroke, True)
+                extra.append(bracket)
+                ends.append((cx_ + sgn * w_, e))
+                marks.append((min(e[0][0], e[1][0]), min(e[0][1], e[1][1]), max(e[0][0], e[1][0]) + font, max(e[0][1], e[1][1]) + font))
         for a, b in crossing:
             i, o = (a, b) if a in inside else (b, a)
             bracket, e = _bracket(xy(i), xy(o), unit.get("shape", "round"), bond_px * unit.get("size", 0.34), stroke,

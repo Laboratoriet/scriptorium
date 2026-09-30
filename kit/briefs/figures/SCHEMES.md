@@ -127,6 +127,14 @@ Don't skip a figure just because it has one of these. Each is a node field (maps
 - **Overlay** of two structures printed on top of each other: the analogue in `smiles`, the reference in
   `under: {smiles, rgroups, coords, align: {map here: map under}, ring: {top: […], under: […], toward: map}}`
   (a five-membered ring over a six-membered one). The reference is drawn faint.
+- **Ring of unspecified size as a full circle** (a cyclic amine drawn as a circle through N): a concrete ring in
+  `smiles`, then `circle: {atoms: [ring maps], float: [{from, via}]}`. Labelled atoms on the circle (N) keep a gap.
+  Two arcs around one ring (a dibenzo ring of any size): `arc: [{atoms: […], center: [all ring maps]}, {…}]`.
+- **"Any ring"** as a rounded square: a blank R group (`" "`) with `box: {atoms: [it], size: [1.5, 1.5], float: […]}`.
+- **Dashed symmetry axis**: `axis: {through: [map, map], extend: 1.5}`.
+- **Resonance forms**: `kekule: as_written` keeps the double bonds where the SMILES puts them; `inner_circle: [[ring
+  maps]]` draws benzene with a circle.
+- **( )n at a bend**, brackets either side of the CH2 rather than across its bonds: `repeat: [{atoms: [m], around: true, label: n}]`.
 - **Printed orientation** — `coords: {map: [x, y]}` pins atoms (bond lengths, y up). Pin the atoms that set the
   shape (backbone, the first atom of each side chain); if a render warns that a pin was released, pin one more
   neighbouring atom rather than fewer.

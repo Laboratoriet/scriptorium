@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 
-/** Shows the printed original of a redrawn figure or a transcribed table, for comparison. */
-export function OriginalToggle({ src, width, height, alt }: { src: string; width: number; height: number; alt: string }) {
+/** Shows the printed original of a redrawn figure or a transcribed table, for comparison. With the figure's id
+ * underneath (quietly, once open): the handle to search for it or refer to it. */
+export function OriginalToggle({ src, width, height, alt, id }: { src: string; width: number; height: number; alt: string; id?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-3 font-sans">
@@ -19,15 +20,18 @@ export function OriginalToggle({ src, width, height, alt }: { src: string; width
         {open ? "Hide printed original" : "Compare with printed original"}
       </button>
       {open && (
-        // eslint-disable-next-line @next/next/no-img-element -- static export, pre-sized WebP
-        <img
-          src={src}
-          width={width}
-          height={height}
-          alt={alt}
-          loading="lazy"
-          className="mt-2 h-auto w-full rounded-sm border border-rule scan"
-        />
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element -- static export, pre-sized WebP */}
+          <img
+            src={src}
+            width={width}
+            height={height}
+            alt={alt}
+            loading="lazy"
+            className="mt-2 h-auto w-full rounded-sm border border-rule scan"
+          />
+          {id && <p className="mt-1.5 text-right text-meta tabular-nums text-ink-faint select-all">{id}</p>}
+        </>
       )}
     </div>
   );

@@ -238,6 +238,7 @@ export async function FigureView({ block }: { block: FigureBlock }) {
           width={block.original.width}
           height={block.original.height}
           alt={`Printed original of ${block.label || "this figure"}`}
+          id={block.id}
         />
       )}
     </figure>

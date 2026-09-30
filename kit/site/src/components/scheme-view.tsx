@@ -78,7 +78,14 @@ function ChapterLink({ node }: { node: SchemeNode }) {
 
 function Node({ node, svg }: { node: SchemeNode; svg: string | null }) {
   if (!svg) {
-    return <p className="prose-book max-w-[14rem] text-center font-sans text-meta text-ink-soft" dangerouslySetInnerHTML={html(node.text_en)} />;
+    // A lone symbol between structures ("=", "+") reads at structure-label size; words stay small.
+    const symbol = node.text_en.trim().length <= 2;
+    return (
+      <p
+        className={`prose-book max-w-[14rem] text-center font-sans ${symbol ? "text-2xl leading-none text-ink" : "text-meta text-ink-soft"}`}
+        dangerouslySetInnerHTML={html(node.text_en)}
+      />
+    );
   }
   return (
     <div className="flex flex-col items-center text-center">
