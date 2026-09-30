@@ -1,0 +1,292 @@
+@import "tailwindcss";
+
+/*
+  Design tokens — "scholarly book".
+  Paper and ink, one restrained accent (deep teal) for interactive things:
+  compound numbers, citations, toggles. Everything else is typographic.
+*/
+:root {
+  --paper: oklch(0.985 0.006 85);
+  --ink: oklch(0.22 0.01 60);
+  --ink-soft: oklch(0.42 0.012 60);
+  --ink-faint: oklch(0.54 0.01 60); /* 4.9:1 on paper (AA for small text) */
+  --rule: oklch(0.88 0.01 80);
+  --tint: oklch(0.955 0.01 85);
+  --accent: oklch(0.45 0.08 195);
+  --accent-soft: oklch(0.93 0.025 195);
+  --remark: oklch(0.5 0.09 55);
+  --focus: oklch(0.55 0.13 195);
+  --scan-blend: multiply; /* scans sit on the paper tone in light mode */
+  /* Chart series, in fixed order (validated: dataviz validate_palette.js, light surface) */
+  --series-1: #008b9e;
+  --series-2: #c46a1f;
+  --series-3: #6b56b0;
+  --series-4: #b8475f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: oklch(0.19 0.006 70);
+    --ink: oklch(0.9 0.012 85);
+    --ink-soft: oklch(0.74 0.012 85);
+    --ink-faint: oklch(0.6 0.01 85);
+    --rule: oklch(0.3 0.008 70);
+    --tint: oklch(0.23 0.007 70);
+    --accent: oklch(0.78 0.08 195);
+    --accent-soft: oklch(0.28 0.03 195);
+    --remark: oklch(0.78 0.09 60);
+    --focus: oklch(0.75 0.12 195);
+    --scan-blend: normal;
+    --series-1: #1aa0ae;
+    --series-2: #d27630;
+    --series-3: #8f7fd6;
+    --series-4: #d96b83;
+  }
+}
+
+:root[data-theme="paper"] {
+  /* Warm book paper; inks re-stepped so small text stays AA (ink-faint 4.9:1, on tint 4.5:1). */
+  --paper: oklch(0.955 0.022 85);
+  --ink: oklch(0.22 0.012 60);
+  --ink-soft: oklch(0.4 0.014 60);
+  --ink-faint: oklch(0.52 0.012 60);
+  --rule: oklch(0.86 0.022 80);
+  --tint: oklch(0.93 0.024 85);
+  --accent: oklch(0.43 0.08 195);
+  --accent-soft: oklch(0.905 0.03 195);
+  --remark: oklch(0.48 0.09 55);
+  --focus: oklch(0.52 0.13 195);
+  --scan-blend: multiply;
+}
+
+:root[data-theme="dark"] {
+  --paper: oklch(0.19 0.006 70);
+  --ink: oklch(0.9 0.012 85);
+  --ink-soft: oklch(0.74 0.012 85);
+  --ink-faint: oklch(0.6 0.01 85);
+  --rule: oklch(0.3 0.008 70);
+  --tint: oklch(0.23 0.007 70);
+  --accent: oklch(0.78 0.08 195);
+  --accent-soft: oklch(0.28 0.03 195);
+  --remark: oklch(0.78 0.09 60);
+  --focus: oklch(0.75 0.12 195);
+  --scan-blend: normal;
+  --series-1: #1aa0ae;
+  --series-2: #d27630;
+  --series-3: #8f7fd6;
+  --series-4: #d96b83;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-rule: var(--rule);
+  --color-tint: var(--tint);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-remark: var(--remark);
+
+  --font-serif: var(--font-text), ui-serif, Georgia, serif;
+  --font-sans: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+
+  /* Type scale: 1.2 ratio from an 18px body */
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.45;
+  --text-note: 0.9rem;
+  --text-note--line-height: 1.5;
+  --text-body: 1.125rem;
+  --text-body--line-height: 1.65;
+  --text-h3: 1.3rem;
+  --text-h3--line-height: 1.35;
+  --text-h2: 1.56rem;
+  --text-h2--line-height: 1.3;
+  --text-h1: 2.4rem;
+  --text-h1--line-height: 1.15;
+
+  --ease-out-soft: cubic-bezier(0.2, 0, 0, 1);
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 5rem;
+}
+
+body {
+  background: var(--paper);
+  font-feature-settings: "kern", "liga", "onum";
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ---------- Running text rendered from the content JSON ---------- */
+
+.prose-book a.cpd {
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+  font-variant-numeric: lining-nums;
+  border-radius: 2px;
+  padding: 0 0.08em;
+  transition: background-color 150ms var(--ease-out-soft);
+}
+.prose-book a.cpd:hover { background: var(--accent-soft); }
+
+/* Cross-references to other sections ("chapter 3.1.1"): accent + quiet underline, unlike the bold compound numbers. */
+.prose-book a.xref {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--accent) 35%, transparent);
+  text-underline-offset: 0.18em;
+  transition: text-decoration-color 150ms var(--ease-out-soft);
+}
+.prose-book a.xref:hover { text-decoration-color: var(--accent); }
+
+.prose-book .cite {
+  font-family: var(--font-ui), sans-serif;
+  font-size: 0.78em;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.prose-book .cite a { color: inherit; text-decoration: none; }
+.prose-book .cite a:hover { color: var(--accent); text-decoration: underline; }
+
+.prose-book sup.tn-ref a,
+.prose-book sup.fn a {
+  font-family: var(--font-ui), sans-serif;
+  font-weight: 600;
+  color: var(--remark);
+  text-decoration: none;
+  padding: 0 0.1em;
+}
+
+/* A printed document given as text (e.g. Heffter's protocol): the section break stays centred. */
+.doc-text .doc-break { text-align: center; letter-spacing: 0.4em; color: var(--ink-faint); }
+
+/* Lists in running text (the book's bulleted overviews). */
+.prose-lists ul { list-style: disc; padding-left: 1.25em; }
+.prose-lists ol { list-style: decimal; padding-left: 1.5em; }
+.prose-lists li + li { margin-top: 0.4em; }
+.prose-lists li::marker { color: var(--ink-faint); }
+.prose-lists hr { border: 0; border-top: 1px solid var(--rule); margin: 1rem 0; }
+
+/* Page break inside running text: a hairline and the new page number. */
+.prose-book .pb::before {
+  content: "│" attr(data-page);
+  font-family: var(--font-ui), sans-serif;
+  font-size: 0.68em;
+  vertical-align: 0.35em;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+}
+
+.prose-book em { font-style: italic; }
+.prose-book sub,
+.prose-book sup { font-size: 0.72em; line-height: 0; }
+
+.prose-book table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-ui), sans-serif;
+  font-size: var(--text-note);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.prose-book th,
+.prose-book td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+.prose-book th { font-weight: 600; color: var(--ink-soft); border-bottom-color: var(--ink-faint); }
+.prose-book td + td,
+.prose-book th + th { text-align: right; }
+
+/* German original under a block: collapsed by default, opened per block or all at once. */
+.de-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms var(--ease-out-soft);
+}
+.de-panel > div {
+  visibility: hidden;
+  transition: visibility 0ms 220ms;
+}
+:root[data-notes-hidden] [data-sidenotes],
+:root[data-notes-hidden] .tn-inline,
+:root[data-notes-hidden] sup.tn-ref { display: none; }
+
+.de-panel[data-open],
+:root[data-german-all] .de-panel {
+  grid-template-rows: 1fr;
+}
+.de-panel[data-open] > div,
+:root[data-german-all] .de-panel > div {
+  visibility: visible;
+  transition-delay: 0ms;
+}
+
+/* Photographed originals (scans) blend into the paper in light mode. */
+.scan { mix-blend-mode: var(--scan-blend); }
+
+/* Inline structure SVGs follow the text colour. */
+/* Natural size (RDKit draws every bond the same length), so structures share one scale; only very wide ones shrink to fit. */
+.structure svg { width: auto; max-width: 100%; height: auto; margin-inline: auto; color: var(--ink); }
+
+/* ---------- Print / PDF: the same book, minus the reading controls ---------- */
+@page { size: A4; margin: 20mm 18mm 22mm; }
+
+@media print {
+  :root { --paper: #fff; --ink: #111; --ink-soft: #333; --ink-faint: #666; --rule: #ccc; --accent: #111; --remark: #555; --scan-blend: multiply; }
+  header, nav, button, .de-panel, [aria-label="Reading options"] { display: none !important; }
+  main { max-width: none !important; padding: 0 !important; }
+  body { font-size: 10.5pt; }
+  .prose-book a { color: inherit !important; }
+  .prose-book a.cpd { font-weight: 700; }
+  figure, table, .structure { break-inside: avoid; }
+  h1, h2, h3 { break-after: avoid; }
+  /* Screen-only aids: "compare with the original below" notes, the label key of scans, sideways scrolling. */
+  .provenance, .label-key, .sr-only, a[href*="pubchem.ncbi"] { display: none !important; }
+  .overflow-x-auto { overflow: visible !important; }
+  /* The chapter grid collapses to one column at print width; wide figures are scaled to fit before printing. */
+  /* Bilingual proofreading edition (scripts/make_pdf.py --edition bilingual): English left, German right, row by
+     row; figures stay full width with the German caption below; notes span both columns. */
+  :root[data-print="bilingual"] .group\/row { grid-template-columns: 3.5rem minmax(0, 1fr) !important; column-gap: 5mm !important; }
+  :root[data-print="bilingual"] .group\/row > div[data-pagefind-ignore] { display: flex !important; }
+  :root[data-print="bilingual"] .reading { display: grid; grid-template-columns: 1fr 1fr; column-gap: 8mm; align-items: start; }
+  :root[data-print="bilingual"] .reading > * { grid-column: 1 / -1; }
+  :root[data-print="bilingual"] .reading:not(:has(figure)) > :first-child { grid-column: 1; grid-row: 1; }
+  :root[data-print="bilingual"] .reading:not(:has(figure)) > .de-panel { grid-column: 2; grid-row: 1; }
+  :root[data-print="bilingual"] .de-panel { display: grid !important; grid-template-rows: 1fr; }
+  :root[data-print="bilingual"] .de-panel > div { visibility: visible; }
+  :root[data-print="bilingual"] .de-panel > div > div { margin-top: 0; background: none; padding: 0 0 0 3mm; color: #222; }
+  /* Translator's notes: print the inline variant, expanded. */
+  details { display: block; }
+  details > summary { min-height: 0; font-size: 8.5pt; }
+  details > p { display: block !important; font-size: 8.5pt; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+}
+
+/* ---------- Contents: collapsible chapter groups (see app/page.tsx, components/toc-toggle.tsx) ---------- */
+.toc-sections {
+  display: grid;
+  grid-template-rows: var(--toc-rows, 1fr);
+  visibility: var(--toc-vis, visible);
+  /* Collapsing: height first, then out of the tab order; expanding: back in at once. */
+  transition: grid-template-rows 220ms var(--ease-out-soft, cubic-bezier(0.22, 1, 0.36, 1)), visibility 0s linear 220ms;
+}
+[data-group] .toc-chevron svg { rotate: var(--toc-turn, 0deg); transition: rotate 200ms var(--ease-out-soft, cubic-bezier(0.22, 1, 0.36, 1)); }
+@media (prefers-reduced-motion: reduce) {
+  .toc-sections, [data-group] .toc-chevron svg { transition: none; }
+}

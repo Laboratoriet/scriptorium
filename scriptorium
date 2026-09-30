@@ -1,0 +1,11 @@
+#!/bin/sh
+# Scriptorium command. Resolves its own location (it is usually a symlink in ~/.local/bin).
+SELF="$0"
+while [ -L "$SELF" ]; do
+  LINK=$(readlink "$SELF")
+  case "$LINK" in /*) SELF="$LINK" ;; *) SELF="$(dirname "$SELF")/$LINK" ;; esac
+done
+HOME_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+PY="$HOME_DIR/.venv/bin/python"
+[ -x "$PY" ] || { echo "Scriptorium isn't installed yet: run $HOME_DIR/install.sh" >&2; exit 1; }
+exec "$PY" "$HOME_DIR/kit/cli.py" "$@"

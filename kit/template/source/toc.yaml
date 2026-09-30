@@ -1,0 +1,9 @@
+# Table of contents, transcribed from the printed contents pages.
+# page = printed start page (roman numerals as strings). End pages are derived (next entry's start − 1).
+# kind: front | chapter | section | excursus | back
+# id: dotted path, used by toc_en.yaml and for anchors ("3", "3.2", "3.2.1", "vorwort").
+#
+# - {id: "vorwort", kind: front, page: "V", de: "Vorwort"}
+# - {id: "1", kind: chapter, page: 1, de: "Einleitung"}
+# - {id: "1.1", kind: section, page: 3, de: "Geschichte"}
+[]

@@ -1,0 +1,3 @@
+# Numbered items with a structure (chemistry books): <unit-dir>-<number> → {name, smiles | spec, …}.
+# Filled by the structure phase (`scriptorium brief STRUCTURES`). Empty for books without compounds.
+{}

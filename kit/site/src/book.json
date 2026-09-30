@@ -1,0 +1,20 @@
+{
+  "title": "Book Title",
+  "subtitle": "Subtitle",
+  "authors": [
+    "First Author",
+    "Second Author"
+  ],
+  "original": "<em>Original Title</em> (Publisher, Year)",
+  "intro": "",
+  "description": "Private English working edition.",
+  "source": {
+    "code": "de",
+    "name": "German",
+    "short": "DE"
+  },
+  "searchExamples": {
+    "en": "e.g. keyword, p. 12",
+    "source": "e.g. keyword, p. 12"
+  }
+}

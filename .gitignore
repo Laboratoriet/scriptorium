@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+node_modules/
+.next/
+kit/site/out/
+kit/site/content/
+*.tsbuildinfo
+# books made inside the repo folder stay private
+/books/

@@ -1,0 +1,35 @@
+# Everything Scriptorium knows about this book. Edit freely, then run `scriptorium build`.
+slug: {{slug}}
+# The original, as printed
+title: {{title}}
+subtitle: {{subtitle}}
+authors: {{authors}}
+year: {{year}}
+publisher: {{publisher}}
+# The English edition
+title_en: {{title_en}}
+subtitle_en: {{subtitle_en}}
+
+# The scan, in source/
+source_pdf: {{source_pdf}}
+languages:
+  source: {code: {{lang_code}}, name: {{lang_name}}, short: {{lang_short}}}
+  target: {code: en, name: English}
+# What the original calls its reference lists (becomes "References")
+references_heading: {{references_heading}}
+
+# rights: public-domain | own-work | licensed | permission | undecided
+rights: {{rights}}
+# translation: agents (Claude translates) | supplied (you bring the English; Scriptorium checks it)
+translation: {{translation}}
+# omissions: none, or which passages this edition leaves out (explain in CONVENTIONS.md)
+policies:
+  omissions: none
+
+# `scriptorium preview` serves the site at http://127.0.0.1:<site_port>
+site_port: {{site_port}}
+edition_note: "Private working translation. Not for distribution."
+bilingual_label: "Parallel edition for proofreading"
+# Chemistry books: name roots readers know, preferred when naming structures
+# chemistry:
+#   familiar_names: [caffeine, dopamine]

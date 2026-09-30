@@ -1,0 +1,6 @@
+# Source → English terminology. One rendering per term, used throughout the book.
+# Add terms as chapters are translated; note the chapter where a choice was made.
+# Where the book uses two source synonyms, keep both distinct in English.
+
+terms: {}
+#  Beispiel: example            # ch. 1

@@ -1,0 +1,12 @@
+# Reading units: one page on the site, one folder in work/ (work/<dir>/).
+# A unit covers a printed page range; TOC entries inside the range belong to it.
+#
+# Fields: slug (URL), dir (work/<dir>), first/last (printed pages), title_de/title_en (source/English title —
+# the keys say de/en whatever the source language), optional:
+#   pages: [I, II, …]          roman front-matter pages (front unit only)
+#   ranges: [[a, b], [c, d]]   a chapter interrupted by another unit (a boxed excursus, an appendix)
+#   compound_scopes: per-section   numbered items restart per section (chemistry books)
+#
+# - {slug: front, dir: front, first: 0, last: 0, title_de: "Vorwort", title_en: "Front Matter", pages: [V, VI]}
+# - {slug: "1", dir: ch01, first: 1, last: 24, title_de: "Kapitel", title_en: "Chapter"}
+[]

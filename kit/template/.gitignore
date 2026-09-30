@@ -1,0 +1,10 @@
+source/*.pdf
+source/pages/*/pdf.png
+source/pages/*/crop*.png
+figures/crops/
+site/node_modules/
+site/.next/
+site/out/
+pdf/
+.env
+__pycache__/
