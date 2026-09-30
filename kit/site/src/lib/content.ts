@@ -195,12 +195,13 @@ export async function getChapter(slug: string): Promise<Chapter> {
 }
 
 export async function getToc(): Promise<TocEntry[]> {
-  return JSON.parse(await readFile(path.join(CONTENT_DIR, "toc.json"), "utf8"));
+  // A new book has no contents built yet: an empty site still builds.
+  return JSON.parse(await readFile(path.join(CONTENT_DIR, "toc.json"), "utf8").catch(() => "[]"));
 }
 
 /** Slugs of built units, in reading order. */
 export async function getAvailableChapters(): Promise<string[]> {
-  const files = await readdir(path.join(CONTENT_DIR, "units"));
+  const files = await readdir(path.join(CONTENT_DIR, "units")).catch(() => [] as string[]);
   const units = await Promise.all(files.map((f) => getChapter(f.replace(/\.json$/, ""))));
   return units.sort((a, b) => a.first - b.first).map((u) => u.slug);
 }
@@ -232,7 +233,7 @@ export async function getSvg(publicPath: string, scale = STRUCTURE_SCALE): Promi
 }
 
 /** For "Go to page N" in search: each unit's printed page range and the pages that have an anchor (#page-N). */
-export type PageUnit = { slug: string; title: string; first: number; last: number; pages: number[] };
+export type PageUnit = { slug: string; title: string; first: number; last: number; pages: number[]; figures: string[] };
 
 export async function getPageIndex(): Promise<PageUnit[]> {
   const slugs = await getAvailableChapters();
@@ -243,5 +244,7 @@ export async function getPageIndex(): Promise<PageUnit[]> {
     first: u.first,
     last: u.last,
     pages: [...new Set(u.blocks.map((b) => b.page).filter((p): p is number => typeof p === "number"))].sort((a, b) => a - b),
+    // Figure ids (p0121-2): the search jumps straight to one.
+    figures: u.blocks.flatMap((b) => (b.type === "figure" ? [b.id] : [])),
   }));
 }
