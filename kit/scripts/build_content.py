@@ -220,6 +220,9 @@ def build_scheme(path: Path, chapter: str, known: set[str], ref_scope: int, cpd_
                 node["image"] = {"src": f"/toc/{src.name}", "width": im.width, "height": im.height}
         if n.get("of"):
             node["of"] = n["of"]
+        for lang in ("en", "de"):  # chapter cards: the class under the chapter title ("Heteroaromatics")
+            if n.get(f"subtitle_{lang}"):
+                node[f"subtitle_{lang}"] = fmt(n[f"subtitle_{lang}"])
         if n.get("smiles"):
             svg_name = f"scheme-{spec['id']}-{key}.svg"
             if any(n.get(k) for k in ("rgroups", "locants", "attach", "highlight", "show_h", "dashed",

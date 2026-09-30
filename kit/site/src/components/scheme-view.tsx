@@ -325,15 +325,41 @@ function CardDrawing({ node, svg }: { node: SchemeNode; svg: string | null }) {
 function TocCard({ id, scheme, svgs }: { id: string; scheme: SchemeData; svgs: Map<string, string | null> }) {
   const node = scheme.nodes[id];
   const extras = Object.keys(scheme.nodes).filter((k) => scheme.nodes[k].of === id);
+  // Cards whose compounds carry a number or notes caption each drawing ("3; methamphetamine" + notes);
+  // otherwise one class name closes the card.
+  const captioned = [id, ...extras].some((k) => scheme.nodes[k].number || scheme.nodes[k].data_en?.length);
+  const caption = (k: string) => {
+    const n = scheme.nodes[k];
+    return (
+      <span className="mt-1 flex flex-col items-center font-sans text-meta leading-snug">
+        {(n.number || n.name_en) && (
+          <span className="text-ink text-balance">
+            {n.number && <b>{n.number}</b>}
+            {n.number && n.name_en && "; "}
+            {n.name_en && <span dangerouslySetInnerHTML={html(n.name_en)} />}
+          </span>
+        )}
+        {n.data_en?.map((line, i) => (
+          <span key={i} className="text-ink-soft text-balance" dangerouslySetInnerHTML={html(line)} />
+        ))}
+      </span>
+    );
+  };
   const body = (
     <>
       <span className="font-sans text-note font-bold text-accent">Chapter {node.chapter}</span>
-      <span className="my-2 flex flex-1 flex-col items-center justify-center gap-2">
+      {node.subtitle_en && <span className="font-sans text-meta text-ink-soft" dangerouslySetInnerHTML={html(node.subtitle_en)} />}
+      <span className={`my-2 flex flex-1 flex-col items-center justify-center ${captioned ? "gap-4" : "gap-2"}`}>
         {[id, ...extras].map((k) => (
-          <CardDrawing key={k} node={scheme.nodes[k]} svg={svgs.get(k) ?? null} />
+          <span key={k} className="flex flex-col items-center">
+            <CardDrawing node={scheme.nodes[k]} svg={svgs.get(k) ?? null} />
+            {captioned && caption(k)}
+          </span>
         ))}
       </span>
-      {node.name_en && <span className="font-sans text-meta leading-snug text-ink text-balance" dangerouslySetInnerHTML={html(node.name_en)} />}
+      {!captioned && node.name_en && (
+        <span className="font-sans text-meta leading-snug text-ink text-balance" dangerouslySetInnerHTML={html(node.name_en)} />
+      )}
     </>
   );
   const cls =
@@ -372,7 +398,8 @@ function TocView({ scheme, svgs }: { scheme: SchemeData; svgs: Map<string, strin
                 </div>
               </div>
             ) : "card" in item ? (
-              <div key={i} className="w-44">
+              // Cards with printed notes need room for a sentence per line; bare cards stay compact.
+              <div key={i} className={scheme.nodes[item.card].data_en?.length ? "w-72" : "w-44"}>
                 <TocCard id={item.card} scheme={scheme} svgs={svgs} />
               </div>
             ) : "text" in item ? (

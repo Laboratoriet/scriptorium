@@ -67,6 +67,8 @@ export type ChartData = {
 };
 
 export type SchemeNode = {
+  subtitle_en?: string; // chapter cards: the class under the chapter title
+  subtitle_de?: string;
   number: string;
   /** Class maps: the section this class is treated in ("7.1") and a link to it. */
   chapter?: string;
